@@ -1,31 +1,65 @@
 package Encode::Locale;
 
 use strict;
-our $VERSION = "0.01";
+our $VERSION = "0.02";
 
 use base 'Exporter';
-our @EXPORT_OK = qw($LOCALE_CODESET decode_argv);
+our @EXPORT_OK = qw(
+    decode_argv env
+    $ENCODING_LOCALE $ENCODING_FS
+    $ENCODING_CONSOLE_IN $ENCODING_CONSOLE_OUT
+);
 
 use Encode ();
 use Encode::Alias ();
 
-our $ENCODING;
-unless ($ENCODING) {
+our $ENCODING_LOCALE;
+our $ENCODING_FS;
+our $ENCODING_CONSOLE_IN;
+our $ENCODING_CONSOLE_OUT;
+
+if ($^O eq "MSWin32") {
+    # If we have the Win32::Console module installed we can ask
+    # it for the code set to use
+    eval {
+	require Win32::Console;
+	my $cp = Win32::Console::InputCP();
+	$ENCODING_CONSOLE_IN = "cp$cp" if $cp;
+	$cp = Win32::Console::OutputCP();
+	$ENCODING_CONSOLE_OUT = "cp$cp" if $cp;
+    };
+    # Invoking the 'chcp' program might also work
+    if (!$ENCODING_CONSOLE_IN && qx(chcp) =~ /^Active code page: (\d+)/) {
+	$ENCODING_CONSOLE_IN = "cp$1";
+    }
+}
+
+unless ($ENCODING_LOCALE) {
     eval {
 	require I18N::Langinfo;
-	$ENCODING = I18N::Langinfo::langinfo(I18N::Langinfo::CODESET());
+	$ENCODING_LOCALE = I18N::Langinfo::langinfo(I18N::Langinfo::CODESET());
     };
-
-    # final fallback
-    $ENCODING ||= "UTF-8";
+    $ENCODING_LOCALE ||= $ENCODING_CONSOLE_IN;
 }
 
-unless (Encode::find_encoding($ENCODING)) {
-    die "The locale codeset ($ENCODING) isn't one that perl can decode, stopped";
+if ($^O eq "darwin") {
+    $ENCODING_FS ||= "UTF-8";
 }
 
-Encode::Alias::define_alias(locale => $ENCODING);
-*LOCALE_CODESET = \$ENCODING;
+# final fallback
+$ENCODING_LOCALE ||= $^O eq "MSWin32" ? "cp1252" : "UTF-8";
+$ENCODING_FS ||= $ENCODING_LOCALE;
+$ENCODING_CONSOLE_IN ||= $ENCODING_LOCALE;
+$ENCODING_CONSOLE_OUT ||= $ENCODING_CONSOLE_IN;
+
+unless (Encode::find_encoding($ENCODING_LOCALE)) {
+    die "The locale codeset ($ENCODING_LOCALE) isn't one that perl can decode, stopped";
+}
+
+Encode::Alias::define_alias(locale => $ENCODING_LOCALE);
+Encode::Alias::define_alias(locale_fs => $ENCODING_FS);
+Encode::Alias::define_alias(console_in => $ENCODING_CONSOLE_IN);
+Encode::Alias::define_alias(console_out => $ENCODING_CONSOLE_OUT);
 
 sub decode_argv {
     my $check = @ARGV ? shift : Encode::FB_CROAK;
@@ -33,6 +67,21 @@ sub decode_argv {
     for (@ARGV) {
 	$_ = Encode::decode(locale => $_, );
     }
+}
+
+sub env {
+    my $k = Encode::encode(locale => shift);
+    my $old = $ENV{$k};
+    if (@_) {
+	my $v = shift;
+	if (defined $v) {
+	    $ENV{$k} = Encode::encode(locale => $v);
+	}
+	else {
+	    delete $ENV{$k};
+	}
+    }
+    return Encode::decode(locale => $old) if defined wantarray;
 }
 
 1;
@@ -49,6 +98,9 @@ Encode::Locale - Determine the locale encoding
   use Encode;
 
   $string = decode(locale => $octets);
+
+  binmode(STDIN, ":encoding(locale)");
+  binmode(STDOUT, ":encoding(locale)");
 
 =head1 DESCRIPTION
 
@@ -70,9 +122,31 @@ In addition the following functions and variables are provided:
 
 This will decode the command line arguments to perl (the C<@ARGV> array) in-place.
 
-=item $LOCALE_CODESET
+=item env( $key )
+
+=item env( $key => $value )
+
+Interface to get/set environment variables.  Returns Unicode string and
+the $key and $value arguments are expected to be the same.  Passing C<undef>
+as $value deletes the variable named $key.
+
+=item $ENCODING_LOCALE
 
 The encoding name determined to be suitable for the current locale.
+L<Encode> know this encoding as "locale".
+
+=item $ENCODING_FS
+
+The encoding name determined to be suiteable for file system interfaces
+involving file names.
+L<Encode> know this encoding as "locale_fs".
+
+=item $ENCODING_CONSOLE_IN
+
+=item $ENCODING_CONSOLE_OUT
+
+The encodings to be used for reading and writing output to the a console.
+L<Encode> know these encodings as "console_in" and "console_out".
 
 =back
 
