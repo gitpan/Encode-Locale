@@ -1,12 +1,12 @@
 package Encode::Locale;
 
 use strict;
-our $VERSION = "0.02";
+our $VERSION = "0.03";
 
 use base 'Exporter';
 our @EXPORT_OK = qw(
     decode_argv env
-    $ENCODING_LOCALE $ENCODING_FS
+    $ENCODING_LOCALE $ENCODING_LOCALE_FS
     $ENCODING_CONSOLE_IN $ENCODING_CONSOLE_OUT
 );
 
@@ -14,7 +14,7 @@ use Encode ();
 use Encode::Alias ();
 
 our $ENCODING_LOCALE;
-our $ENCODING_FS;
+our $ENCODING_LOCALE_FS;
 our $ENCODING_CONSOLE_IN;
 our $ENCODING_CONSOLE_OUT;
 
@@ -38,17 +38,23 @@ unless ($ENCODING_LOCALE) {
     eval {
 	require I18N::Langinfo;
 	$ENCODING_LOCALE = I18N::Langinfo::langinfo(I18N::Langinfo::CODESET());
+
+	# Workaround of Encode < v2.25.  The "646" encoding  alias was
+	# introducted in Encode-2.25, but we don't want to require that version
+	# quite yet.  Should avoid the CPAN testers failure reported from
+	# openbsd-4.7/perl-5.10.0 combo.
+	$ENCODING_LOCALE = "ascii" if $ENCODING_LOCALE eq "646";
     };
     $ENCODING_LOCALE ||= $ENCODING_CONSOLE_IN;
 }
 
 if ($^O eq "darwin") {
-    $ENCODING_FS ||= "UTF-8";
+    $ENCODING_LOCALE_FS ||= "UTF-8";
 }
 
 # final fallback
 $ENCODING_LOCALE ||= $^O eq "MSWin32" ? "cp1252" : "UTF-8";
-$ENCODING_FS ||= $ENCODING_LOCALE;
+$ENCODING_LOCALE_FS ||= $ENCODING_LOCALE;
 $ENCODING_CONSOLE_IN ||= $ENCODING_LOCALE;
 $ENCODING_CONSOLE_OUT ||= $ENCODING_CONSOLE_IN;
 
@@ -56,16 +62,15 @@ unless (Encode::find_encoding($ENCODING_LOCALE)) {
     die "The locale codeset ($ENCODING_LOCALE) isn't one that perl can decode, stopped";
 }
 
-Encode::Alias::define_alias(locale => $ENCODING_LOCALE);
-Encode::Alias::define_alias(locale_fs => $ENCODING_FS);
-Encode::Alias::define_alias(console_in => $ENCODING_CONSOLE_IN);
-Encode::Alias::define_alias(console_out => $ENCODING_CONSOLE_OUT);
+Encode::Alias::define_alias(sub {
+    no strict 'refs';
+    return ${"ENCODING_" . uc(shift)};
+}, "locale");
 
 sub decode_argv {
-    my $check = @ARGV ? shift : Encode::FB_CROAK;
     die if defined wantarray;
     for (@ARGV) {
-	$_ = Encode::decode(locale => $_, );
+	$_ = Encode::decode(locale => $_, @_);
     }
 }
 
@@ -120,22 +125,36 @@ In addition the following functions and variables are provided:
 
 =item decode_argv()
 
+=item decode_argv( Encode::FB_CROAK )
+
 This will decode the command line arguments to perl (the C<@ARGV> array) in-place.
 
-=item env( $key )
+The function will by default replace characters that can't be decoded by
+"\x{FFFD}", the Unicode replacement character.
 
-=item env( $key => $value )
+Any argument provided is passed as CHECK to underlying Encode::decode() call.
+Pass the value C<Encode::FB_CROAK> to have the decoding croak if not all the
+command line arguments can be decoded.  See L<Encode/"Handling Malformed Data">
+for details on other options for CHECK.
 
-Interface to get/set environment variables.  Returns Unicode string and
-the $key and $value arguments are expected to be the same.  Passing C<undef>
-as $value deletes the variable named $key.
+=item env( $uni_key )
+
+=item env( $uni_key => $uni_value )
+
+Interface to get/set environment variables.  Returns the current value as a
+Unicode string. The $uni_key and $uni_value arguments are expected to be
+Unicode strings as well.  Passing C<undef> as $uni_value deletes the
+environment variable named $uni_key.
+
+The returned value will have the characters that can't be decoded replaced by
+"\x{FFFD}", the Unicode replacement character.
 
 =item $ENCODING_LOCALE
 
 The encoding name determined to be suitable for the current locale.
 L<Encode> know this encoding as "locale".
 
-=item $ENCODING_FS
+=item $ENCODING_LOCALE_FS
 
 The encoding name determined to be suiteable for file system interfaces
 involving file names.
