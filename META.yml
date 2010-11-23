@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Encode-Locale
-version:            0.03
+version:            0.04
 abstract:           Determine the locale encoding
 author:
     - Gisle Aas <gisle@activestate.com>
