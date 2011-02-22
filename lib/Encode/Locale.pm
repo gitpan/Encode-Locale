@@ -1,7 +1,7 @@
 package Encode::Locale;
 
 use strict;
-our $VERSION = "1.00";
+our $VERSION = "1.01";
 
 use base 'Exporter';
 our @EXPORT_OK = qw(
@@ -78,6 +78,7 @@ sub _init {
 _init();
 Encode::Alias::define_alias(sub {
     no strict 'refs';
+    no warnings 'once';
     return ${"ENCODING_" . uc(shift)};
 }, "locale");
 
