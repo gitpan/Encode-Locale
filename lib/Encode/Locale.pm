@@ -1,7 +1,7 @@
 package Encode::Locale;
 
 use strict;
-our $VERSION = "1.01";
+our $VERSION = "1.02";
 
 use base 'Exporter';
 our @EXPORT_OK = qw(
@@ -56,6 +56,9 @@ sub _init {
 	    # quite yet.  Should avoid the CPAN testers failure reported from
 	    # openbsd-4.7/perl-5.10.0 combo.
 	    $ENCODING_LOCALE = "ascii" if $ENCODING_LOCALE eq "646";
+
+	    # https://rt.cpan.org/Ticket/Display.html?id=66373
+	    $ENCODING_LOCALE = "hp-roman8" if $^O eq "hpux" && $ENCODING_LOCALE eq "roman8";
 	};
 	$ENCODING_LOCALE ||= $ENCODING_CONSOLE_IN;
     }
@@ -71,7 +74,19 @@ sub _init {
     $ENCODING_CONSOLE_OUT ||= $ENCODING_CONSOLE_IN;
 
     unless (Encode::find_encoding($ENCODING_LOCALE)) {
-	die "The locale codeset ($ENCODING_LOCALE) isn't one that perl can decode, stopped";
+	my $foundit;
+	if (lc($ENCODING_LOCALE) eq "gb18030") {
+	    eval {
+		require Encode::HanExtra;
+	    };
+	    if ($@) {
+		die "Need Encode::HanExtra to be installed to support locale codeset ($ENCODING_LOCALE), stopped";
+	    }
+	    $foundit++ if Encode::find_encoding($ENCODING_LOCALE);
+	}
+	die "The locale codeset ($ENCODING_LOCALE) isn't one that perl can decode, stopped"
+	    unless $foundit;
+
     }
 }
 
@@ -228,7 +243,7 @@ For example:
 =item reinit( $encoding )
 
 Reinitialize the encodings from the locale.  You want to call this function if
-changed anything in the environment that might influence the locale.
+you changed anything in the environment that might influence the locale.
 
 This function will croak if the determined encoding isn't recognized by
 the Encode module.
